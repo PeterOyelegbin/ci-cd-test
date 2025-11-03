@@ -28,7 +28,7 @@ jobs:
             echo "Deploying to production..."
             export SERVER_IP=${{ secrets.PROD_IP }}
           fi
-          ssh -i ${{ secrets.SSH_PUBLIC_KEY }} ${{ secrets.SERVER_USER }}@${{ SERVER_IP }} "
+          ssh -i ${{ secrets.SSH_PUBLIC_KEY }} ${{ secrets.SERVER_USER }}@$SERVER_IP "
             apt-get update
             apt-get install -y nginx
             systemctl enable nginx
@@ -50,7 +50,7 @@ jobs:
             echo "Deploying to production..."
             export SERVER_IP=${{ secrets.PROD_IP }}
           fi
-          # ssh -i ${{ secrets.SSH_PUBLIC_KEY }} ${{ secrets.SERVER_USER }}@${{ SERVER_IP }} "
+          # ssh -i ${{ secrets.SSH_PUBLIC_KEY }} ${{ secrets.SERVER_USER }}@$SERVER_IP "
           #   apt-get update
           #   apt-get install -y nginx
           #   systemctl enable nginx
@@ -58,4 +58,4 @@ jobs:
           # "
 
           # Create custom homepage
-          rsync -i ${{ secrets.SSH_PUBLIC_KEY }} -avz --delete ./frontend/* ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:/var/www/html/
+          rsync -i ${{ secrets.SSH_PUBLIC_KEY }} -avz --delete ./frontend/* ${{ secrets.SERVER_USER }}@$SERVER_IP:/var/www/html/
