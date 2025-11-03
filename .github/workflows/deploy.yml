@@ -5,73 +5,47 @@ on:
     branches: [ dev, main ]
 
 jobs:
-  deploy:
+  deploy-staging:
+    if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - branch: dev
-            environment: staging
-            server-host: ${{ secrets.STAGING_IP }}
-            server-username: ${{ secrets.SERVER_USER }}
-            server-ssh-key: ${{ secrets.SSH_PUBLIC_KEY }}
-            # webhook-url: ${{ secrets.STAGING_SLACK_WEBHOOK_URL }}
-          - branch: main
-            environment: production
-            server-host: ${{ secrets.PROD_IP }}
-            server-username: ${{ secrets.SERVER_USER }}
-            server-ssh-key: ${{ secrets.SSH_PUBLIC_KEY }}
-            # webhook-url: ${{ secrets.PRODUCTION_SLACK_WEBHOOK_URL }}
+    environment: staging
     
-    environment: ${{ matrix.environment }}
-    
-    # Only run for the specific branch that triggered the workflow
-    if: github.ref == 'refs/heads/${{ matrix.branch }}'
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Detect environment and branch
+    - name: Show deployment info
       run: |
-        echo "🎯 Deployment Target: ${{ matrix.environment }}"
+        echo "🎯 Deploying to STAGING environment"
         echo "🌿 Branch: ${{ github.ref }}"
-        echo "🏷️  Git SHA: ${{ github.sha }}"
-        
-    - name: Deploy to ${{ matrix.environment }}
+        echo "🏷️  Commit: ${{ github.sha }}"
+
+    - name: Deploy to Staging Server
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ matrix.server-host }}
-        username: ${{ matrix.server-username }}
-        key: ${{ matrix.server-ssh-key }}
+        host: ${{ secrets.STAGING_IP }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PUBLIC_KEY }}
         script: |
           set -e  # Exit on error
           
-          echo "🚀 Deploying to ${{ matrix.environment }} server..."
-          echo "📝 Branch: ${{ github.ref }}"
-          echo "🔑 Commit: ${{ github.sha }}"
+          echo "🚀 Starting deployment to STAGING..."
           
-          # Install nginx if not present
-          apt-get update
-          apt-get install -y nginx
-          systemctl enable nginx
-          systemctl start nginx
-
-          # Create backup with environment and timestamp
+          # Create backup with timestamp
           TIMESTAMP=$(date +%Y%m%d%H%M%S)
-          sudo cp -r /var/www/html /var/www/html.backup.${{ matrix.environment }}.$TIMESTAMP 2>/dev/null || true
+          sudo cp -r /var/www/html /var/www/html.backup.staging.$TIMESTAMP 2>/dev/null || true
           
-          # Deploy new files
+          # Remove existing content and deploy new files
           sudo rm -rf /var/www/html/*
           sudo mkdir -p /var/www/html
           sudo cp -r frontend/* /var/www/html/
           
-          # Set permissions
+          # Set proper permissions
           sudo chown -R www-data:www-data /var/www/html
           sudo chmod -R 755 /var/www/html
           
           # Create deployment info file
-          echo "Environment: ${{ matrix.environment }}" | sudo tee /var/www/html/deployment-info.txt
+          echo "Environment: staging" | sudo tee /var/www/html/deployment-info.txt
           echo "Branch: ${{ github.ref }}" | sudo tee -a /var/www/html/deployment-info.txt
           echo "Commit: ${{ github.sha }}" | sudo tee -a /var/www/html/deployment-info.txt
           echo "Deployed at: $(date)" | sudo tee -a /var/www/html/deployment-info.txt
@@ -80,31 +54,111 @@ jobs:
           sudo nginx -t
           sudo systemctl reload nginx
           
-          echo "✅ ${{ matrix.environment }} deployment completed successfully!"
-          echo "📁 Backup created: /var/www/html.backup.${{ matrix.environment }}.$TIMESTAMP"
+          echo "✅ Staging deployment completed successfully!"
+          echo "📁 Backup created: /var/www/html.backup.staging.$TIMESTAMP"
 
-    - name: Verify ${{ matrix.environment }} deployment
+    - name: Verify Staging Deployment
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ matrix.server-host }}
-        username: ${{ matrix.server-username }}
-        key: ${{ matrix.server-ssh-key }}
+        host: ${{ secrets.STAGING_IP }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PUBLIC_KEY }}
         script: |
           # Verify nginx is running
           if systemctl is-active --quiet nginx; then
-            echo "✅ Nginx is running on ${{ matrix.environment }}"
+            echo "✅ Nginx is running on staging"
           else
-            echo "❌ Nginx is not running on ${{ matrix.environment }}"
+            echo "❌ Nginx is not running on staging"
             exit 1
           fi
           
           # Verify files are deployed
           if [ -n "$(ls -A /var/www/html/)" ]; then
-            echo "✅ Files are deployed successfully to ${{ matrix.environment }}"
+            echo "✅ Files are deployed successfully to staging"
             echo "📄 Deployment info:"
             cat /var/www/html/deployment-info.txt || echo "No deployment info file"
           else
-            echo "❌ No files found in /var/www/html/ on ${{ matrix.environment }}"
+            echo "❌ No files found in /var/www/html/ on staging"
+            exit 1
+          fi
+
+  deploy-production:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Show deployment info
+      run: |
+        echo "🎯 Deploying to PRODUCTION environment"
+        echo "🌿 Branch: ${{ github.ref }}"
+        echo "🏷️  Commit: ${{ github.sha }}"
+        echo "⚠️  PRODUCTION DEPLOYMENT - BE CAREFUL!"
+
+    - name: Deploy to Production Server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.PROD_IP }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PUBLIC_KEY }}
+        script: |
+          set -e  # Exit on error
+          
+          echo "🚀 Starting deployment to PRODUCTION..."
+          echo "⚠️  This is PRODUCTION - be careful!"
+          
+          # Create backup with timestamp (important for production)
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          sudo cp -r /var/www/html /var/www/html.backup.production.$TIMESTAMP 2>/dev/null || true
+          echo "📁 Production backup created: /var/www/html.backup.production.$TIMESTAMP"
+          
+          # Remove existing content and deploy new files
+          sudo rm -rf /var/www/html/*
+          sudo mkdir -p /var/www/html
+          sudo cp -r frontend/index/* /var/www/html/
+          
+          # Set proper permissions
+          sudo chown -R www-data:www-data /var/www/html
+          sudo chmod -R 755 /var/www/html
+          
+          # Create deployment info file
+          echo "Environment: production" | sudo tee /var/www/html/deployment-info.txt
+          echo "Branch: ${{ github.ref }}" | sudo tee -a /var/www/html/deployment-info.txt
+          echo "Commit: ${{ github.sha }}" | sudo tee -a /var/www/html/deployment-info.txt
+          echo "Deployed at: $(date)" | sudo tee -a /var/www/html/deployment-info.txt
+          echo "Backup: /var/www/html.backup.production.$TIMESTAMP" | sudo tee -a /var/www/html/deployment-info.txt
+          
+          # Test and reload nginx
+          sudo nginx -t
+          sudo systemctl reload nginx
+          
+          echo "✅ Production deployment completed successfully!"
+          echo "🎉 Production is now live with the latest changes!"
+
+    - name: Verify Production Deployment
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.PROD_IP }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PUBLIC_KEY }}
+        script: |
+          # Verify nginx is running
+          if systemctl is-active --quiet nginx; then
+            echo "✅ Nginx is running on production"
+          else
+            echo "❌ Nginx is not running on production"
             exit 1
           fi
           
+          # Verify files are deployed
+          if [ -n "$(ls -A /var/www/html/)" ]; then
+            echo "✅ Files are deployed successfully to production"
+            echo "📄 Deployment info:"
+            cat /var/www/html/deployment-info.txt || echo "No deployment info file"
+          else
+            echo "❌ No files found in /var/www/html/ on production"
+            exit 1
+          fi
