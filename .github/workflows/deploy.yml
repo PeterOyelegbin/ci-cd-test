@@ -1,69 +1,110 @@
-name: Deploy to Colocation Server
+name: Deploy to Staging and Production
+
 on:
   push:
-    branches:
-      - main
-      - develop
+    branches: [ dev, main ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - branch: dev
+            environment: staging
+            server-host: ${{ secrets.STAGING_IP }}
+            server-username: ${{ secrets.SERVER_USER }}
+            server-ssh-key: ${{ secrets.SSH_PUBLIC_KEY }}
+            webhook-url: ${{ secrets.STAGING_SLACK_WEBHOOK_URL }}
+          - branch: main
+            environment: production
+            server-host: ${{ secrets.PROD_IP }}
+            server-username: ${{ secrets.SERVER_USER }}
+            server-ssh-key: ${{ secrets.SSH_PUBLIC_KEY }}
+            webhook-url: ${{ secrets.PRODUCTION_SLACK_WEBHOOK_URL }}
+    
+    environment: ${{ matrix.environment }}
+    
+    # Only run for the specific branch that triggered the workflow
+    if: github.ref == 'refs/heads/${{ matrix.branch }}'
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Setup SSH
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
-            echo "Deploying to staging..."
-            export SERVER_IP=${{ secrets.STAGING_IP }}
-          else
-            echo "Deploying to production..."
-            export SERVER_IP=${{ secrets.PROD_IP }}
-          fi
-
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/id_rsa.pem
-          chmod 600 ~/.ssh/id_rsa.pem
-          ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts
+    - name: Detect environment and branch
+      run: |
+        echo "🎯 Deployment Target: ${{ matrix.environment }}"
+        echo "🌿 Branch: ${{ github.ref }}"
+        echo "🏷️  Git SHA: ${{ github.sha }}"
+        
+    - name: Deploy to ${{ matrix.environment }}
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ matrix.server-host }}
+        username: ${{ matrix.server-username }}
+        key: ${{ matrix.server-ssh-key }}
+        script: |
+          set -e  # Exit on error
           
-      - name: Setup Server via SSH
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
-            echo "Deploying to staging..."
-            export SERVER_IP=${{ secrets.STAGING_IP }}
+          echo "🚀 Deploying to ${{ matrix.environment }} server..."
+          echo "📝 Branch: ${{ github.ref }}"
+          echo "🔑 Commit: ${{ github.sha }}"
+          
+          # Install nginx if not present
+          apt-get update
+          apt-get install -y nginx
+          systemctl enable nginx
+          systemctl start nginx
+
+          # Create backup with environment and timestamp
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          sudo cp -r /var/www/html /var/www/html.backup.${{ matrix.environment }}.$TIMESTAMP 2>/dev/null || true
+          
+          # Deploy new files
+          sudo rm -rf /var/www/html/*
+          sudo mkdir -p /var/www/html
+          sudo cp -r frontend/* /var/www/html/
+          
+          # Set permissions
+          sudo chown -R www-data:www-data /var/www/html
+          sudo chmod -R 755 /var/www/html
+          
+          # Create deployment info file
+          echo "Environment: ${{ matrix.environment }}" | sudo tee /var/www/html/deployment-info.txt
+          echo "Branch: ${{ github.ref }}" | sudo tee -a /var/www/html/deployment-info.txt
+          echo "Commit: ${{ github.sha }}" | sudo tee -a /var/www/html/deployment-info.txt
+          echo "Deployed at: $(date)" | sudo tee -a /var/www/html/deployment-info.txt
+          
+          # Test and reload nginx
+          sudo nginx -t
+          sudo systemctl reload nginx
+          
+          echo "✅ ${{ matrix.environment }} deployment completed successfully!"
+          echo "📁 Backup created: /var/www/html.backup.${{ matrix.environment }}.$TIMESTAMP"
+
+    - name: Verify ${{ matrix.environment }} deployment
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ matrix.server-host }}
+        username: ${{ matrix.server-username }}
+        key: ${{ matrix.server-ssh-key }}
+        script: |
+          # Verify nginx is running
+          if systemctl is-active --quiet nginx; then
+            echo "✅ Nginx is running on ${{ matrix.environment }}"
           else
-            echo "Deploying to production..."
-            export SERVER_IP=${{ secrets.PROD_IP }}
+            echo "❌ Nginx is not running on ${{ matrix.environment }}"
+            exit 1
           fi
-          ssh -i ~/.ssh/id_rsa.pem -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@$SERVER_IP "
-            apt-get update
-            apt-get install -y nginx
-            systemctl enable nginx
-            systemctl start nginx
-
-            # cd /var/www/html || mkdir -p /var/www/html
-            # cd /var/www/html
-            # git pull || git clone https://github.com/${{ github.repository }} .
-            # npm install
-            # pm2 restart all || pm2 start app.js
-          "
-
-      - name: Sync app folder
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
-            echo "Deploying to staging..."
-            export SERVER_IP=${{ secrets.STAGING_IP }}
+          
+          # Verify files are deployed
+          if [ -n "$(ls -A /var/www/html/)" ]; then
+            echo "✅ Files are deployed successfully to ${{ matrix.environment }}"
+            echo "📄 Deployment info:"
+            cat /var/www/html/deployment-info.txt || echo "No deployment info file"
           else
-            echo "Deploying to production..."
-            export SERVER_IP=${{ secrets.PROD_IP }}
+            echo "❌ No files found in /var/www/html/ on ${{ matrix.environment }}"
+            exit 1
           fi
-          # ssh -i .ssh/id_ed25519 ${{ secrets.SERVER_USER }}@$SERVER_IP "
-          #   apt-get update
-          #   apt-get install -y nginx
-          #   systemctl enable nginx
-          #   systemctl start nginx
-          # "
-
-          # Create custom homepage
-          rsync -avz --delete -e "ssh -i ~/.ssh/id_rsa.pem -o StrictHostKeyChecking=no" ./frontend/* ${{ secrets.SERVER_USER }}@$SERVER_IP:/var/www/html/
+          
