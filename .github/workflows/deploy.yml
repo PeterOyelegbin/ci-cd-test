@@ -118,7 +118,7 @@ jobs:
           # Remove existing content and deploy new files
           sudo rm -rf /var/www/html/*
           sudo mkdir -p /var/www/html
-          sudo cp -r frontend/index/* /var/www/html/
+          sudo cp -r frontend/* /var/www/html/
           
           # Set proper permissions
           sudo chown -R www-data:www-data /var/www/html
