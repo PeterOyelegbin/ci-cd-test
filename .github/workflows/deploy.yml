@@ -1,0 +1,61 @@
+name: Deploy to Colocation Server
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # - name: Setup SSH
+      #   run: |
+      #     mkdir -p ~/.ssh
+      #     echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+      #     chmod 600 ~/.ssh/id_ed25519
+      #     ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Setup Server via SSH
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "Deploying to staging..."
+            export SERVER_IP=${{ secrets.STAGING_IP }}
+          else
+            echo "Deploying to production..."
+            export SERVER_IP=${{ secrets.PROD_IP }}
+          fi
+          ssh -i ${{ secrets.SSH_PUBLIC_KEY }} ${{ secrets.SERVER_USER }}@${{ SERVER_IP }} "
+            apt-get update
+            apt-get install -y nginx
+            systemctl enable nginx
+            systemctl start nginx
+
+            # cd /var/www/html || mkdir -p /var/www/html
+            # cd /var/www/html
+            # git pull || git clone https://github.com/${{ github.repository }} .
+            # npm install
+            # pm2 restart all || pm2 start app.js
+          "
+
+      - name: Sync app folder
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "Deploying to staging..."
+            export SERVER_IP=${{ secrets.STAGING_IP }}
+          else
+            echo "Deploying to production..."
+            export SERVER_IP=${{ secrets.PROD_IP }}
+          fi
+          # ssh -i ${{ secrets.SSH_PUBLIC_KEY }} ${{ secrets.SERVER_USER }}@${{ SERVER_IP }} "
+          #   apt-get update
+          #   apt-get install -y nginx
+          #   systemctl enable nginx
+          #   systemctl start nginx
+          # "
+
+          # Create custom homepage
+          rsync -i ${{ secrets.SSH_PUBLIC_KEY }} -avz --delete ./frontend/* ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:/var/www/html/
