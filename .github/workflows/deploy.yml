@@ -21,11 +21,12 @@ jobs:
             echo "Deploying to production..."
             export SERVER_IP=${{ secrets.PROD_IP }}
           fi
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts
 
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/id_rsa.pem
+          chmod 600 ~/.ssh/id_rsa.pem
+          ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts
+          
       - name: Setup Server via SSH
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
@@ -35,7 +36,7 @@ jobs:
             echo "Deploying to production..."
             export SERVER_IP=${{ secrets.PROD_IP }}
           fi
-          ssh -i .ssh/id_ed25519 ${{ secrets.SERVER_USER }}@$SERVER_IP "
+          ssh -i ~/.ssh/id_rsa.pem -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@$SERVER_IP "
             apt-get update
             apt-get install -y nginx
             systemctl enable nginx
@@ -65,4 +66,4 @@ jobs:
           # "
 
           # Create custom homepage
-          rsync -i ${{ secrets.SSH_PUBLIC_KEY }} -avz --delete ./frontend/* ${{ secrets.SERVER_USER }}@$SERVER_IP:/var/www/html/
+          rsync -avz --delete -e "ssh -i ~/.ssh/id_rsa.pem -o StrictHostKeyChecking=no" ./frontend/* ${{ secrets.SERVER_USER }}@$SERVER_IP:/var/www/html/
