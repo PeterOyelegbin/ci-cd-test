@@ -1,165 +1,131 @@
-name: Deploy to Staging and Production
+name: Deploy Node.js App to Azure VM
 
 on:
   push:
-    branches: [ dev, main ]
+    branches: [ main, master, dev ]
+  pull_request:
+    branches: [ main, master, dev ]
+
+env:
+  NODE_VERSION: '18.x'
 
 jobs:
-  deploy-staging:
-    if: github.ref == 'refs/heads/dev'
+  test:
     runs-on: ubuntu-latest
-    environment: staging
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Show deployment info
-      run: |
-        echo "🎯 Deploying to STAGING environment"
-        echo "🌿 Branch: ${{ github.ref }}"
-        echo "🏷️  Commit: ${{ github.sha }}"
-
-    - name: Deploy to Staging Server
-      uses: appleboy/ssh-action@v1.0.3
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
       with:
-        host: ${{ secrets.STAGING_IP }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          set -e  # Exit on error
-          
-          echo "🚀 Starting deployment to STAGING..."
-          
-          # Create backup with timestamp
-          TIMESTAMP=$(date +%Y%m%d%H%M%S)
-          sudo cp -r /var/www/html /var/www/html.backup.staging.$TIMESTAMP 2>/dev/null || true
-          
-          # Remove existing content and deploy new files
-          sudo rm -rf /var/www/html/*
-          sudo mkdir -p /var/www/html
-          sudo cp -r frontend/index.html /var/www/html/
-          
-          # Set proper permissions
-          sudo chown -R www-data:www-data /var/www/html
-          sudo chmod -R 755 /var/www/html
-          
-          # Create deployment info file
-          echo "Environment: staging" | sudo tee /var/www/html/deployment-info.txt
-          echo "Branch: ${{ github.ref }}" | sudo tee -a /var/www/html/deployment-info.txt
-          echo "Commit: ${{ github.sha }}" | sudo tee -a /var/www/html/deployment-info.txt
-          echo "Deployed at: $(date)" | sudo tee -a /var/www/html/deployment-info.txt
-          
-          # Test and reload nginx
-          sudo nginx -t
-          sudo systemctl reload nginx
-          
-          echo "✅ Staging deployment completed successfully!"
-          echo "📁 Backup created: /var/www/html.backup.staging.$TIMESTAMP"
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
 
-    - name: Verify Staging Deployment
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.STAGING_IP }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          # Verify nginx is running
-          if systemctl is-active --quiet nginx; then
-            echo "✅ Nginx is running on staging"
-          else
-            echo "❌ Nginx is not running on staging"
-            exit 1
-          fi
-          
-          # Verify files are deployed
-          if [ -n "$(ls -A /var/www/html/)" ]; then
-            echo "✅ Files are deployed successfully to staging"
-            echo "📄 Deployment info:"
-            cat /var/www/html/deployment-info.txt || echo "No deployment info file"
-          else
-            echo "❌ No files found in /var/www/html/ on staging"
-            exit 1
-          fi
+    - name: Install dependencies
+      run: npm ci
 
-  deploy-production:
-    if: github.ref == 'refs/heads/main'
+    - name: Run tests
+      run: npm test
+
+  deploy:
     runs-on: ubuntu-latest
-    environment: production
+    needs: test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Show deployment info
-      run: |
-        echo "🎯 Deploying to PRODUCTION environment"
-        echo "🌿 Branch: ${{ github.ref }}"
-        echo "🏷️  Commit: ${{ github.sha }}"
-        echo "⚠️  PRODUCTION DEPLOYMENT - BE CAREFUL!"
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
 
-    - name: Deploy to Production Server
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build application
+      run: npm run build --if-present
+
+    - name: Deploy to Azure VM
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.PROD_IP }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        host: ${{ secrets.AZURE_VM_HOST }}
+        username: ${{ secrets.AZURE_VM_USERNAME }}
+        password: ${{ secrets.AZURE_VM_PASSWORD }}
+        port: ${{ secrets.AZURE_VM_PORT || 22 }}
         script: |
-          set -e  # Exit on error
+          # Create app directory if it doesn't exist
+          sudo mkdir -p /var/www/html/node-app
+          sudo chown ${{ secrets.AZURE_VM_USERNAME }}:${{ secrets.AZURE_VM_USERNAME }} /var/www/html/node-app
           
-          echo "🚀 Starting deployment to PRODUCTION..."
-          echo "⚠️  This is PRODUCTION - be careful!"
+          # Create logs directory
+          sudo mkdir -p /var/log/node-app
+          sudo chown ${{ secrets.AZURE_VM_USERNAME }}:${{ secrets.AZURE_VM_USERNAME }} /var/log/node-app
+
+    - name: Copy files to Azure VM
+      uses: appleboy/scp-action@v0.1.3
+      with:
+        host: ${{ secrets.AZURE_VM_HOST }}
+        username: ${{ secrets.AZURE_VM_USERNAME }}
+        password: ${{ secrets.AZURE_VM_PASSWORD }}
+        port: ${{ secrets.AZURE_VM_PORT || 22 }}
+        source: "./node,!.git,!.github,node_modules"
+        target: "/var/www/html/node-app"
+
+    - name: Setup and restart service on Azure VM
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.AZURE_VM_HOST }}
+        username: ${{ secrets.AZURE_VM_USERNAME }}
+        password: ${{ secrets.AZURE_VM_PASSWORD }}
+        port: ${{ secrets.AZURE_VM_PORT || 22 }}
+        script: |
+          cd /var/www/html/node-app
           
-          # Create backup with timestamp (important for production)
-          TIMESTAMP=$(date +%Y%m%d%H%M%S)
-          sudo cp -r /var/www/html /var/www/html.backup.production.$TIMESTAMP 2>/dev/null || true
-          echo "📁 Production backup created: /var/www/html.backup.production.$TIMESTAMP"
+          # Install production dependencies
+          npm ci --only=production
           
-          # Remove existing content and deploy new files
-          sudo rm -rf /var/www/html/*
-          sudo mkdir -p /var/www/html
-          sudo cp -r frontend/index.html /var/www/html/
+          # Create systemd service file
+          sudo bash -c 'cat > /etc/systemd/system/node-app.service << EOF
+          [Unit]
+          Description=My Node.js Application
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=${{ secrets.AZURE_VM_USERNAME }}
+          WorkingDirectory=/var/www/html/node-app
+          ExecStart=/usr/bin/node server.js
+          Restart=on-failure
+          RestartSec=10
+          StandardOutput=file:/var/log/node-app/output.log
+          StandardError=file:/var/log/node-app/error.log
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF'
+          
+          # Create environment file if needed
+          sudo bash -c 'cat > /var/www/html/node-app/.env << EOF
+          NODE_ENV=production
+          PORT=3000
+          EOF'
           
           # Set proper permissions
-          sudo chown -R www-data:www-data /var/www/html
-          sudo chmod -R 755 /var/www/html
+          sudo chmod 644 /etc/systemd/system/node-app.service
+          sudo chown ${{ secrets.AZURE_VM_USERNAME }}:${{ secrets.AZURE_VM_USERNAME }} /var/www/html/node-app/.env
           
-          # Create deployment info file
-          echo "Environment: production" | sudo tee /var/www/html/deployment-info.txt
-          echo "Branch: ${{ github.ref }}" | sudo tee -a /var/www/html/deployment-info.txt
-          echo "Commit: ${{ github.sha }}" | sudo tee -a /var/www/html/deployment-info.txt
-          echo "Deployed at: $(date)" | sudo tee -a /var/www/html/deployment-info.txt
-          echo "Backup: /var/www/html.backup.production.$TIMESTAMP" | sudo tee -a /var/www/html/deployment-info.txt
+          # Reload systemd and enable the service
+          sudo systemctl daemon-reload
+          sudo systemctl enable node-app.service
           
-          # Test and reload nginx
-          sudo nginx -t
-          sudo systemctl reload nginx
+          # Restart the service
+          sudo systemctl restart node-app.service
           
-          echo "✅ Production deployment completed successfully!"
-          echo "🎉 Production is now live with the latest changes!"
-
-    - name: Verify Production Deployment
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.PROD_IP }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          # Verify nginx is running
-          if systemctl is-active --quiet nginx; then
-            echo "✅ Nginx is running on production"
-          else
-            echo "❌ Nginx is not running on production"
-            exit 1
-          fi
-          
-          # Verify files are deployed
-          if [ -n "$(ls -A /var/www/html/)" ]; then
-            echo "✅ Files are deployed successfully to production"
-            echo "📄 Deployment info:"
-            cat /var/www/html/deployment-info.txt || echo "No deployment info file"
-          else
-            echo "❌ No files found in /var/www/html/ on production"
-            exit 1
-          fi
+          # Check service status
+          sudo systemctl status node-app.service
           
