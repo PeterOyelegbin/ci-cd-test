@@ -50,25 +50,17 @@ jobs:
     - name: Build application
       run: npm run build --if-present
 
-    - name: Configure passwordless sudo and deploy
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.AZURE_VM_HOST }}
-        username: ${{ secrets.AZURE_VM_USERNAME }}
-        password: ${{ secrets.AZURE_VM_PASSWORD }}
-        port: ${{ secrets.AZURE_VM_PORT || 22 }}
-        script: |
-          # Configure passwordless sudo for the current user
-          echo '${{ secrets.AZURE_VM_USERNAME }} ALL=(ALL) NOPASSWD: ALL' | sudo tee -a /etc/sudoers.d/${{ secrets.AZURE_VM_USERNAME }}
-          sudo chmod 440 /etc/sudoers.d/${{ secrets.AZURE_VM_USERNAME }}
-          
-          # Create app directory if it doesn't exist
-          sudo mkdir -p /var/www/html/node-app
-          sudo chown ${{ secrets.AZURE_VM_USERNAME }}:${{ secrets.AZURE_VM_USERNAME }} /var/www/html/node-app
-          
-          # Create logs directory
-          sudo mkdir -p /var/log/node-app
-          sudo chown ${{ secrets.AZURE_VM_USERNAME }}:${{ secrets.AZURE_VM_USERNAME }} /var/log/node-app
+    # - name: Configure passwordless sudo and deploy
+    #   uses: appleboy/ssh-action@v1.0.3
+    #   with:
+    #     host: ${{ secrets.AZURE_VM_HOST }}
+    #     username: ${{ secrets.AZURE_VM_USERNAME }}
+    #     password: ${{ secrets.AZURE_VM_PASSWORD }}
+    #     port: ${{ secrets.AZURE_VM_PORT || 22 }}
+    #     script: |
+    #       # Use password with sudo for initial setup
+    #       echo '${{ secrets.AZURE_VM_PASSWORD }}' | sudo -S bash -c "echo '${{ secrets.AZURE_VM_USERNAME }} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/${{ secrets.AZURE_VM_USERNAME }}"
+    #       echo '${{ secrets.AZURE_VM_PASSWORD }}' | sudo -S chmod 440 /etc/sudoers.d/${{ secrets.AZURE_VM_USERNAME }}
 
     - name: Deploy to Azure VM
       uses: appleboy/ssh-action@v1.0.3
@@ -78,9 +70,9 @@ jobs:
         password: ${{ secrets.AZURE_VM_PASSWORD }}
         port: ${{ secrets.AZURE_VM_PORT || 22 }}
         script: |
-          # Configure passwordless sudo for deployment user
-          echo '${{ secrets.AZURE_VM_USERNAME }} ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/deploy-user
-          sudo chmod 440 /etc/sudoers.d/deploy-user
+          # Use password with sudo for initial setup
+          echo '${{ secrets.AZURE_VM_PASSWORD }}' | sudo -S bash -c "echo '${{ secrets.AZURE_VM_USERNAME }} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/${{ secrets.AZURE_VM_USERNAME }}"
+          echo '${{ secrets.AZURE_VM_PASSWORD }}' | sudo -S chmod 440 /etc/sudoers.d/${{ secrets.AZURE_VM_USERNAME }}
 
           # Create app directory if it doesn't exist
           sudo mkdir -p /var/www/html/node-app
