@@ -58,6 +58,10 @@ jobs:
         password: ${{ secrets.AZURE_VM_PASSWORD }}
         port: ${{ secrets.AZURE_VM_PORT || 22 }}
         script: |
+          # Configure passwordless sudo for deployment user
+          echo '${{ secrets.AZURE_VM_USERNAME }} ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/deploy-user
+          sudo chmod 440 /etc/sudoers.d/deploy-user
+          
           # Create app directory if it doesn't exist
           sudo mkdir -p /var/www/html/node-app
           sudo chown ${{ secrets.AZURE_VM_USERNAME }}:${{ secrets.AZURE_VM_USERNAME }} /var/www/html/node-app
