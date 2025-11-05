@@ -73,7 +73,7 @@ jobs:
         username: ${{ secrets.AZURE_VM_USERNAME }}
         password: ${{ secrets.AZURE_VM_PASSWORD }}
         port: ${{ secrets.AZURE_VM_PORT || 22 }}
-        source: "./node,!.git,!.github,node_modules"
+        source: ".,!.git,!.github,node_modules"
         target: "/var/www/html/node-app"
 
     - name: Setup and restart service on Azure VM
