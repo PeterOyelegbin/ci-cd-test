@@ -69,11 +69,14 @@ jobs:
         username: ${{ secrets.AZURE_VM_USERNAME }}
         password: ${{ secrets.AZURE_VM_PASSWORD }}
         port: ${{ secrets.AZURE_VM_PORT || 22 }}
+        script_stdin: true
         script: |
-          # Use password with sudo for initial setup
-          echo '${{ secrets.AZURE_VM_PASSWORD }}' | sudo -S bash -c "echo '${{ secrets.AZURE_VM_USERNAME }} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/${{ secrets.AZURE_VM_USERNAME }}"
-          echo '${{ secrets.AZURE_VM_PASSWORD }}' | sudo -S chmod 440 /etc/sudoers.d/${{ secrets.AZURE_VM_USERNAME }}
-
+          # This approach handles password input more reliably
+          sudo -S mkdir -p /var/www/html/node-app <<< "${{ secrets.AZURE_VM_PASSWORD }}"
+          sudo -S chown ${{ secrets.AZURE_VM_USERNAME }}:${{ secrets.AZURE_VM_USERNAME }} /var/www/html/node-app <<< "${{ secrets.AZURE_VM_PASSWORD }}"
+          sudo -S mkdir -p /var/log/node-app <<< "${{ secrets.AZURE_VM_PASSWORD }}"
+          sudo -S chown ${{ secrets.AZURE_VM_USERNAME }}:${{ secrets.AZURE_VM_USERNAME }} /var/log/node-app <<< "${{ secrets.AZURE_VM_PASSWORD }}"
+                  
           # Create app directory if it doesn't exist
           sudo mkdir -p /var/www/html/node-app
           sudo chown ${{ secrets.AZURE_VM_USERNAME }}:${{ secrets.AZURE_VM_USERNAME }} /var/www/html/node-app
